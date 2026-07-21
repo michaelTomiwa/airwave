@@ -1,0 +1,310 @@
+// AIRWAVE data model.
+//
+// Money is stored as integer kobo everywhere (1 NGN = 100 kobo) to avoid float
+// rounding and to match Paystack's native unit. lib/format.ts divides by 100
+// for display.
+//
+// SQLite has no native enum support, so categorical fields below are plain
+// String columns. Allowed values are documented per field as comments and
+// enforced at the application layer (zod schemas / literal unions in
+// types/next-auth.d.ts and lib/*). Field names and semantics are otherwise
+// identical to what a Postgres migration with real enums would use, so
+// swapping `datasource.url` later needs no schema restructuring beyond
+// optionally promoting these to native enums.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  username     String   @unique
+  phone        String?
+  country      String   @default("Nigeria")
+  /// LISTENER | BROADCASTER | ADMIN
+  role         String
+  avatarUrl    String?
+  bio          String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  station       Station?
+  follows       Follow[]
+  savedStations SavedStation[]
+  messages      ChatMessage[]
+  payments      Payment[]
+  supports      StationSupport[]
+  notifications Notification[]
+  reportsFiled  Report[]
+}
+
+model Station {
+  id                 String   @id @default(cuid())
+  ownerId            String   @unique
+  owner              User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  slug               String   @unique
+  name               String
+  category           String
+  description        String
+  country            String
+  language           String
+  coverImageUrl      String?
+  /// PENDING | APPROVED | REJECTED
+  approvalStatus     String   @default("PENDING")
+  isLive             Boolean  @default(false)
+  featured           Boolean  @default(false)
+  verified           Boolean  @default(false)
+  nowPlayingTitle    String?
+  walletBalanceKobo  Int      @default(0)
+  pendingPayoutKobo  Int      @default(0)
+  totalWithdrawnKobo Int      @default(0)
+  followerCount      Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  subscription   BroadcasterSubscription?
+  liveSessions   LiveSession[]
+  recordings     Recording[]
+  chatMessages   ChatMessage[]
+  follows        Follow[]
+  savedBy        SavedStation[]
+  tracks         Track[]
+  supports       StationSupport[]
+  payments       Payment[]
+  payouts        Payout[]
+  reports        Report[]
+  scheduledShows ScheduledShow[]
+
+  @@index([approvalStatus, isLive])
+  @@index([category])
+}
+
+model Plan {
+  id               String  @id @default(cuid())
+  code             String  @unique
+  name             String
+  priceKobo        Int
+  listenerCap      Int?
+  maxGuests        Int
+  recordingEnabled Boolean
+  customBranding   Boolean
+  analytics        Boolean @default(false)
+  sortOrder        Int     @default(0)
+  isActive         Boolean @default(true)
+
+  subscriptions BroadcasterSubscription[]
+}
+
+model BroadcasterSubscription {
+  id                   String   @id @default(cuid())
+  stationId            String   @unique
+  station              Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 Plan     @relation(fields: [planId], references: [id])
+  /// ACTIVE | LAPSED | CANCELED
+  status               String   @default("ACTIVE")
+  paystackCustomerCode String?
+  currentPeriodEnd     DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model StationSupport {
+  id               String   @id @default(cuid())
+  listenerId       String
+  listener         User     @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  stationId        String
+  station          Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  /// FAN | SUPERFAN | VIP
+  tier             String
+  priceKobo        Int
+  /// ACTIVE | LAPSED | CANCELED
+  status           String   @default("ACTIVE")
+  currentPeriodEnd DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([listenerId, stationId])
+}
+
+model LiveSession {
+  id               String    @id @default(cuid())
+  stationId        String
+  station          Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  livekitRoomName  String    @unique
+  /// LIVE | ENDED
+  status           String    @default("LIVE")
+  currentListeners Int       @default(0)
+  peakListeners    Int       @default(0)
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+
+  chatMessages ChatMessage[]
+  recording    Recording?
+
+  @@index([stationId, status])
+}
+
+model Recording {
+  id              String       @id @default(cuid())
+  stationId       String
+  station         Station      @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  liveSessionId   String?      @unique
+  liveSession     LiveSession? @relation(fields: [liveSessionId], references: [id])
+  title           String
+  durationSeconds Int?
+  fileUrl         String?
+  egressId        String?
+  /// PROCESSING | READY | FAILED
+  status          String       @default("PROCESSING")
+  peakListeners   Int          @default(0)
+  airedAt         DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+
+  @@index([stationId])
+}
+
+model ChatMessage {
+  id            String       @id @default(cuid())
+  stationId     String
+  station       Station      @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  liveSessionId String?
+  liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName      String
+  text          String
+  flagged       Boolean      @default(false)
+  removed       Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+
+  @@index([stationId, liveSessionId, createdAt])
+}
+
+model Follow {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stationId String
+  station   Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, stationId])
+}
+
+model SavedStation {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stationId String
+  station   Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, stationId])
+}
+
+model Track {
+  id              String   @id @default(cuid())
+  stationId       String
+  station         Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  title           String
+  artist          String
+  durationSeconds Int
+  createdAt       DateTime @default(now())
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  /// TIP | BROADCASTER_SUBSCRIPTION | LISTENER_SUPPORT
+  purpose           String
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stationId         String?
+  station           Station? @relation(fields: [stationId], references: [id])
+  amountKobo        Int
+  /// PENDING | SUCCESS | FAILED
+  status            String   @default("PENDING")
+  paystackReference String   @unique
+  metadata          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([stationId])
+  @@index([userId])
+}
+
+model Payout {
+  id               String    @id @default(cuid())
+  stationId        String
+  station          Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  amountKobo       Int
+  /// PENDING | APPROVED | PAID | REJECTED
+  status           String    @default("PENDING")
+  bankName         String
+  accountNumber    String
+  accountName      String
+  decidedByAdminId String?
+  requestedAt      DateTime  @default(now())
+  decidedAt        DateTime?
+}
+
+model Report {
+  id         String    @id @default(cuid())
+  /// STATION | MESSAGE | USER
+  targetType String
+  stationId  String?
+  station    Station?  @relation(fields: [stationId], references: [id])
+  messageId  String?
+  reporterId String
+  reporter   User      @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason     String
+  /// OPEN | RESOLVED
+  status     String    @default("OPEN")
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// STATION_LIVE | NEW_FOLLOWER | TIP_RECEIVED | SUPPORT_RECEIVED | STATION_APPROVED | STATION_REJECTED | PAYOUT_DECIDED | SYSTEM
+  type      String
+  title     String
+  body      String
+  linkUrl   String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  title     String
+  detail    String
+  /// NEUTRAL | GOOD | WARNING
+  tone      String   @default("NEUTRAL")
+  createdAt DateTime @default(now())
+}
+
+model ScheduledShow {
+  id         String   @id @default(cuid())
+  stationId  String
+  station    Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  title      String
+  startsAt   DateTime
+  /// NONE | WEEKLY
+  recurrence String   @default("NONE")
+  createdAt  DateTime @default(now())
+
+  @@index([stationId, startsAt])
+}
