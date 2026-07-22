@@ -1,13 +1,20 @@
+databases:
+  - name: airwave-db
+    plan: free
+    postgresMajorVersion: "16"
+
 services:
   - type: web
     name: airwave
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
-    startCommand: npm run start
+    startCommand: npx prisma migrate deploy && npm run start
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: airwave-db
+          property: connectionString
       - key: NEXTAUTH_SECRET
         sync: false
       - key: NEXTAUTH_URL

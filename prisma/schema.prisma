@@ -4,16 +4,15 @@
 // rounding and to match Paystack's native unit. lib/format.ts divides by 100
 // for display.
 //
-// SQLite has no native enum support, so categorical fields below are plain
-// String columns. Allowed values are documented per field as comments and
-// enforced at the application layer (zod schemas / literal unions in
-// types/next-auth.d.ts and lib/*). Field names and semantics are otherwise
-// identical to what a Postgres migration with real enums would use, so
-// swapping `datasource.url` later needs no schema restructuring beyond
-// optionally promoting these to native enums.
+// Categorical fields below are plain String columns rather than native
+// enums (this schema started on SQLite, which has no enum support, and
+// keeping strings avoids a migration reset now that it's on Postgres).
+// Allowed values are documented per field as comments and enforced at the
+// application layer (zod schemas / literal unions in types/next-auth.d.ts
+// and lib/*).
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
