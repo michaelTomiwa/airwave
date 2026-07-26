@@ -14,6 +14,7 @@ type AppRole = 'LISTENER' | 'BROADCASTER' | 'ADMIN'
 // from the token onto auth.user, and every role-based redirect would silently
 // see `role: undefined`.
 export const authConfig = {
+  trustHost: true,
   pages: {
     signIn: '/auth/login',
   },
